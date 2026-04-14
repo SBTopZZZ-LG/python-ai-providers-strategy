@@ -1,6 +1,6 @@
 import asyncio
 
-from ai_providers import AIProviderConfig, ProviderType, create_ai_provider
+from ai_providers import AIProviderConfig, ProviderType, create_ai_provider, dispose_ai_provider
 
 
 async def main():
@@ -37,7 +37,7 @@ async def main():
     finally:
         # 4. Clean up
         print("Disposing session...")
-        await provider.dispose_session()
+        await dispose_ai_provider(provider)
 
 if __name__ == "__main__":
     asyncio.run(main())

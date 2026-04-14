@@ -44,3 +44,16 @@ async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
         return CopilotProvider(options)
 
     raise ValueError(f"Unknown provider type: {config.provider_type}")
+
+async def dispose_ai_provider(provider: BaseAIProvider):
+    """Factory method to dispose of an AI provider instance."""
+    
+    try:
+        await provider.dispose_session()
+        
+        if isinstance(provider, CopilotProvider):
+            copilot_provider_client = provider.options.client
+            if copilot_provider_client is not None:
+                await copilot_provider_client.stop()
+    except Exception as e:
+        print(f"Error disposing AI provider session: {str(e)}")
