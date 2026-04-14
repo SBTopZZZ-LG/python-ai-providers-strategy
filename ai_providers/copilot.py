@@ -35,12 +35,12 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
         """
         options = self.options
 
-        assert options.client is not None, \
-            "Copilot client must be provided for session initialization."
-        assert options.client.get_state() == 'connected', \
-            "Copilot client must be connected to initialize session."
-        assert options.model is not None and str.strip(options.model) != "", \
-            "Model name must be provided for session initialization."
+        if options.client is None:
+            raise ValueError("Copilot client must be provided for session initialization.")
+        if options.client.get_state() != 'connected':
+            raise ValueError("Copilot client must be connected to initialize session.")
+        if options.model is None or str.strip(options.model) == "":
+            raise ValueError("Valid model name must be provided for session initialization.")
 
         if self.session is not None:
             print("Warning: Copilot session already initialized. Reinitializing session.")
@@ -53,16 +53,18 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
         Send a message to the Copilot AI provider and await a response.
         """
 
-        assert self.session is not None, \
-            "Copilot session must be initialized before sending messages."
+        if self.session is None:
+            raise ValueError("Copilot session is not initialized.")
 
         response = await self.session.send_and_wait(
             {"prompt": message},
             timeout=self.RESPONSE_TIMEOUT_IN_SECONDS
         )
 
-        assert response is not None, "Received null response from Copilot session."
-        assert response.data is not None, "Received response with null data from Copilot session."
+        if response is None:
+            raise RuntimeError("Received null response from Copilot session.")
+        if response.data is None:
+            raise RuntimeError("Received response with null data from Copilot session.")
 
         return response.data.content or ""
 
