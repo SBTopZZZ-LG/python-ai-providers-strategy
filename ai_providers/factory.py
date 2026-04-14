@@ -32,7 +32,10 @@ async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
         import copilot
 
         client = copilot.CopilotClient()
-        await client.start()
+        try:
+            await client.start()
+        except Exception as e:
+            raise RuntimeError(f"Failed to start Copilot client: {str(e)}") from e
 
         options = CopilotProviderOptions(
             client=client,
