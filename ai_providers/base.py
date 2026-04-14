@@ -1,13 +1,40 @@
 """Base class for AI providers."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 
 @dataclass
 class BaseAIProviderOptions:
     """Base options for all AI providers."""
+
+
+ToolHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+"""Async callable that handles a tool invocation.
+
+Receives an invocation dict (containing at minimum an ``arguments`` key) and
+returns a result dict understood by the underlying provider SDK.
+"""
+
+
+@dataclass
+class BaseTool:
+    """Provider-agnostic tool definition.
+
+    Attributes:
+        name: Unique tool identifier recognised by the model.
+        description: Natural-language description used by the model to decide
+            when to invoke this tool.
+        parameters: JSON Schema object describing the tool's accepted arguments.
+        handler: Async callable invoked when the model calls this tool.
+    """
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
+    handler: ToolHandler
 
 
 T = TypeVar('T', bound=BaseAIProviderOptions)

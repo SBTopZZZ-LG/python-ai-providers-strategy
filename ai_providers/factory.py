@@ -1,10 +1,10 @@
 """Factory for creating AI provider instances based on a generic configuration."""
 
 from contextlib import AsyncExitStack, asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
-from .base import BaseAIProvider
+from .base import BaseAIProvider, BaseTool
 from .copilot import CopilotProvider, CopilotProviderOptions
 
 
@@ -23,6 +23,8 @@ class AIProviderConfig:
         model: Model identifier for provider session creation.
         system_prompt: System prompt passed to the model at session initialization.
         timeout: Timeout in seconds for provider requests.
+        tools: Provider-agnostic tool definitions to register with the session.
+            Defaults to an empty list (no tools).
     """
 
     provider_type: ProviderType
@@ -30,6 +32,7 @@ class AIProviderConfig:
     model: str
     system_prompt: str
     timeout: float
+    tools: list[BaseTool] = field(default_factory=list)
 
 
 async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
@@ -65,7 +68,8 @@ async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
                     client=client,
                     model=config.model,
                     system_prompt=config.system_prompt,
-                    timeout=config.timeout
+                    timeout=config.timeout,
+                    tools=config.tools,
                 )
                 provider = CopilotProvider(options)
             except Exception as e:

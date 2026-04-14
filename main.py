@@ -1,8 +1,19 @@
 """Main module to demonstrate usage of the AI provider framework."""
 
 import asyncio
+from typing import Any
 
-from ai_providers import AIProviderConfig, ProviderType, managed_ai_provider
+from ai_providers import AIProviderConfig, BaseTool, ProviderType, managed_ai_provider
+
+
+async def _ping_handler(invocation: dict[str, Any]) -> dict[str, Any]:  # noqa: RUF029
+    """Echo the ping value back as a pong."""
+    value = invocation.get("arguments", {}).get("value", "")
+    return {
+        "textResultForLlm": f"pong: {value}",
+        "resultType": "success",
+        "sessionLog": f"ping_pong called with value={value!r}",
+    }
 
 
 async def main():
@@ -13,7 +24,24 @@ async def main():
         provider_type=ProviderType.COPILOT,
         model="gpt-4o",  # or gpt-5
         system_prompt="You are a helpful assistant.",
-        timeout=120  # 2 minutes
+        timeout=120,  # 2 minutes
+        tools=[
+            BaseTool(
+                name="ping_pong",
+                description="Echoes back the provided value as a pong response.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "value": {
+                            "type": "string",
+                            "description": "The value to echo back.",
+                        },
+                    },
+                    "required": ["value"],
+                },
+                handler=_ping_handler,
+            )
+        ],
     )
 
     try:

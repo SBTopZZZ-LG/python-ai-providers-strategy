@@ -1,11 +1,11 @@
 """Copilot AI provider implementation."""
 
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
-from copilot import CopilotClient, CopilotSession
+from copilot import CopilotClient, CopilotSession, Tool
 
-from .base import BaseAIProvider, BaseAIProviderOptions
+from .base import BaseAIProvider, BaseAIProviderOptions, BaseTool
 
 
 @dataclass
@@ -17,12 +17,15 @@ class CopilotProviderOptions(BaseAIProviderOptions):
         model: Model identifier used when creating sessions.
         system_prompt: System prompt passed to the model as the initial system message.
         timeout: Timeout in seconds for send-and-wait operations.
+        tools: Provider-agnostic tool definitions registered with the session.
+            Each ``BaseTool`` is mapped to a Copilot SDK ``Tool`` at session creation.
     """
 
     client: CopilotClient
     model: str = "gpt-4o"
     system_prompt: str = "You are a helpful assistant."
     timeout: float = 1800
+    tools: list[BaseTool] = field(default_factory=list)
 
 
 class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
@@ -49,6 +52,10 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
 
         The system prompt is passed to the SDK as a system message with mode ``replace``
         so it takes effect for the full duration of the session.
+
+        Each ``BaseTool`` in ``options.tools`` is mapped to a Copilot SDK ``Tool``
+        before the session is created. If no tools are provided the ``tools`` key is
+        omitted from the session payload entirely.
 
         Returns:
             None
@@ -77,12 +84,23 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
             print("Warning: Copilot session already initialized. Reinitializing session.")
             await self.dispose_session()
 
+        sdk_tools = [
+            Tool(
+                name=t.name,
+                description=t.description,
+                parameters=t.parameters,
+                handler=t.handler,
+            )
+            for t in options.tools
+        ]
+
         self.session = await options.client.create_session({
             "model": options.model,
             "system_message": {
                 "content": options.system_prompt,
                 "mode": "replace"
             },
+            **({"tools": sdk_tools} if sdk_tools else {}),
         })
 
     async def send_message_and_await_response(self, message: str) -> str:
