@@ -208,6 +208,7 @@ Planned providers can be added as new rows as they are implemented.
 ## TODO
 
 - [x] Use AsyncExitStack to manage resource life-cycle and maintain clean code
+- [ ] Add `agents` similar to `providers` to manage agent orchestration along with tool calls, and add agent factory methods to `agents/factory.py`
 - [ ] Unit/Integration tests for ai_providers package, and all providers
 - [ ] Add Claude AI provider
 - [ ] Add OpenAI provider
