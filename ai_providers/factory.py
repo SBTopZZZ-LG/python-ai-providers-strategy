@@ -20,6 +20,7 @@ class AIProviderConfig:
     provider_type: ProviderType
 
     model: str = "gpt-4o"
+    timeout: int = 7200
 
 
 async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
@@ -39,7 +40,8 @@ async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
 
         options = CopilotProviderOptions(
             client=client,
-            model=config.model
+            model=config.model,
+            timeout=config.timeout
         )
         return CopilotProvider(options)
 

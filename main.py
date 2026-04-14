@@ -8,6 +8,7 @@ async def main():
     config = AIProviderConfig(
         provider_type=ProviderType.COPILOT,
         model="gpt-4o",  # or gpt-5
+        timeout=120 # 2 minutes
     )
 
     # 1. Create the provider using the factory

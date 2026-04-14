@@ -14,14 +14,13 @@ class CopilotProviderOptions(BaseAIProviderOptions):
 
     client: CopilotClient
     model: str
+    timeout: int
 
 
 class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
     """
     Copilot AI provider implementation.
     """
-
-    RESPONSE_TIMEOUT_IN_SECONDS = 7200
 
     session: Optional[CopilotSession]
 
@@ -58,7 +57,7 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
 
         response = await self.session.send_and_wait(
             {"prompt": message},
-            timeout=self.RESPONSE_TIMEOUT_IN_SECONDS
+            timeout=self.options.timeout
         )
 
         if response is None:
