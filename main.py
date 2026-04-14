@@ -12,6 +12,7 @@ async def main():
     config = AIProviderConfig(
         provider_type=ProviderType.COPILOT,
         model="gpt-4o",  # or gpt-5
+        system_prompt="You are a helpful assistant.",
         timeout=120  # 2 minutes
     )
 

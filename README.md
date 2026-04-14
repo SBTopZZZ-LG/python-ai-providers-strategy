@@ -74,6 +74,7 @@ Example (`CopilotProviderOptions`):
 
 - `client`
 - `model`
+- `system_prompt`
 - `timeout`
 
 ### Factory Responsibilities
@@ -135,6 +136,7 @@ async def run() -> None:
     config = AIProviderConfig(
         provider_type=ProviderType.COPILOT,
         model="gpt-4o",
+        system_prompt="You are a helpful assistant.",
         timeout=120,
     )
 

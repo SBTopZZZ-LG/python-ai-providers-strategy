@@ -21,13 +21,15 @@ class AIProviderConfig:
     Attributes:
         provider_type: Provider backend to instantiate.
         model: Model identifier for provider session creation.
+        system_prompt: System prompt passed to the model at session initialization.
         timeout: Timeout in seconds for provider requests.
     """
 
     provider_type: ProviderType
 
-    model: str = "gpt-4o"
-    timeout: float = 1800
+    model: str
+    system_prompt: str
+    timeout: float
 
 
 async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
@@ -53,7 +55,8 @@ async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
             try:
                 await client.start()
             except Exception as e:
-                raise RuntimeError(f"Failed to start Copilot client: {str(e)}") from e
+                raise RuntimeError(
+                    f"Failed to start Copilot client: {str(e)}") from e
 
             stack.push_async_callback(client.stop)
 
@@ -61,16 +64,19 @@ async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
                 options = CopilotProviderOptions(
                     client=client,
                     model=config.model,
+                    system_prompt=config.system_prompt,
                     timeout=config.timeout
                 )
                 provider = CopilotProvider(options)
             except Exception as e:
-                raise RuntimeError(f"Failed to initialize Copilot provider: {str(e)}") from e
+                raise RuntimeError(
+                    f"Failed to initialize Copilot provider: {str(e)}") from e
 
             stack.pop_all()
             return provider
 
     raise ValueError(f"Unknown provider type: {config.provider_type}")
+
 
 async def dispose_ai_provider(provider: BaseAIProvider):
     """Dispose provider-owned resources in reverse lifecycle order.
@@ -116,7 +122,7 @@ async def managed_ai_provider(config: AIProviderConfig):
         ValueError: If the provider type is unsupported.
         RuntimeError: If provider creation or disposal fails.
     """
-    
+
     provider = await create_ai_provider(config)
     try:
         yield provider

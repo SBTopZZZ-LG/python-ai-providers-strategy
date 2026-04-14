@@ -15,19 +15,21 @@ class CopilotProviderOptions(BaseAIProviderOptions):
     Attributes:
         client: Connected Copilot client instance.
         model: Model identifier used when creating sessions.
+        system_prompt: System prompt passed to the model as the initial system message.
         timeout: Timeout in seconds for send-and-wait operations.
     """
 
     client: CopilotClient
-    model: str
-    timeout: float
+    model: str = "gpt-4o"
+    system_prompt: str = "You are a helpful assistant."
+    timeout: float = 1800
 
 
 class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
     """Copilot AI provider implementation.
 
     Args:
-        options: Copilot provider options including client, model, and timeout.
+        options: Copilot provider options including client, model, system_prompt, and timeout.
     """
 
     session: Optional[CopilotSession]
@@ -38,12 +40,15 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
         Args:
             options: Copilot provider options.
         """
-        
+
         super().__init__(options)
         self.session = None
 
     async def initialize_session(self):
-        """Initialize a Copilot session for the configured model.
+        """Initialize a Copilot session for the configured model and system prompt.
+
+        The system prompt is passed to the SDK as a system message with mode ``replace``
+        so it takes effect for the full duration of the session.
 
         Returns:
             None
@@ -52,23 +57,33 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
             ValueError: If client, model, or timeout configuration is invalid.
             RuntimeError: If the Copilot SDK fails to create a session.
         """
-        
+
         options = self.options
 
         if options.client is None:
-            raise ValueError("Copilot client must be provided for session initialization.")
+            raise ValueError(
+                "Copilot client must be provided for session initialization.")
         if options.client.get_state() != 'connected':
-            raise ValueError("Copilot client must be connected to initialize session.")
+            raise ValueError(
+                "Copilot client must be connected to initialize session.")
         if options.model is None or str.strip(options.model) == "":
-            raise ValueError("Valid model name must be provided for session initialization.")
+            raise ValueError(
+                "Valid model name must be provided for session initialization.")
         if options.timeout <= 0:
-            raise ValueError("Timeout must be a positive floating point number for session initialization.")
+            raise ValueError(
+                "Timeout must be a positive floating point number for session initialization.")
 
         if self.session is not None:
             print("Warning: Copilot session already initialized. Reinitializing session.")
             await self.dispose_session()
 
-        self.session = await options.client.create_session({"model": options.model})
+        self.session = await options.client.create_session({
+            "model": options.model,
+            "system_message": {
+                "content": options.system_prompt,
+                "mode": "replace"
+            },
+        })
 
     async def send_message_and_await_response(self, message: str) -> str:
         """Send a prompt and wait for a Copilot response.
@@ -95,7 +110,8 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
         if response is None:
             raise RuntimeError("Received null response from Copilot session.")
         if response.data is None:
-            raise RuntimeError("Received response with null data from Copilot session.")
+            raise RuntimeError(
+                "Received response with null data from Copilot session.")
 
         return response.data.content or ""
 
@@ -115,6 +131,7 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
         try:
             await self.session.destroy()
         except Exception as e:
-            raise RuntimeError(f"Failed to dispose Copilot session: {str(e)}") from e
+            raise RuntimeError(
+                f"Failed to dispose Copilot session: {str(e)}") from e
         finally:
             self.session = None
