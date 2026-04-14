@@ -10,7 +10,13 @@ from .base import BaseAIProvider, BaseAIProviderOptions
 
 @dataclass
 class CopilotProviderOptions(BaseAIProviderOptions):
-    """Options for initializing the Copilot provider."""
+    """Options for initializing the Copilot provider.
+
+    Attributes:
+        client: Connected Copilot client instance.
+        model: Model identifier used when creating sessions.
+        timeout: Timeout in seconds for send-and-wait operations.
+    """
 
     client: CopilotClient
     model: str
@@ -18,20 +24,35 @@ class CopilotProviderOptions(BaseAIProviderOptions):
 
 
 class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
-    """
-    Copilot AI provider implementation.
+    """Copilot AI provider implementation.
+
+    Args:
+        options: Copilot provider options including client, model, and timeout.
     """
 
     session: Optional[CopilotSession]
 
     def __init__(self, options: CopilotProviderOptions):
+        """Initialize the Copilot provider.
+
+        Args:
+            options: Copilot provider options.
+        """
+        
         super().__init__(options)
         self.session = None
 
     async def initialize_session(self):
+        """Initialize a Copilot session for the configured model.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If client, model, or timeout configuration is invalid.
+            RuntimeError: If the Copilot SDK fails to create a session.
         """
-        Initialize the Copilot session.
-        """
+        
         options = self.options
 
         if options.client is None:
@@ -50,8 +71,17 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
         self.session = await options.client.create_session({"model": options.model})
 
     async def send_message_and_await_response(self, message: str) -> str:
-        """
-        Send a message to the Copilot AI provider and await a response.
+        """Send a prompt and wait for a Copilot response.
+
+        Args:
+            message: Prompt content to send to the active session.
+
+        Returns:
+            Response content text. Returns an empty string when no content is present.
+
+        Raises:
+            ValueError: If no session is initialized.
+            RuntimeError: If the SDK returns an invalid or empty response payload.
         """
 
         if self.session is None:
@@ -70,8 +100,13 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
         return response.data.content or ""
 
     async def dispose_session(self):
-        """
-        Dispose of the Copilot session.
+        """Dispose the active Copilot session.
+
+        Returns:
+            None
+
+        Raises:
+            RuntimeError: If session destruction fails.
         """
 
         if self.session is None:
