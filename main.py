@@ -1,14 +1,18 @@
+"""Main module to demonstrate usage of the AI provider framework."""
+
 import asyncio
 
 from ai_providers import AIProviderConfig, ProviderType, managed_ai_provider
 
 
 async def main():
+    """Main function to demonstrate usage of the AI provider framework."""
+
     print("Initializing configuration...")
     config = AIProviderConfig(
         provider_type=ProviderType.COPILOT,
         model="gpt-4o",  # or gpt-5
-        timeout=120 # 2 minutes
+        timeout=120  # 2 minutes
     )
 
     try:
