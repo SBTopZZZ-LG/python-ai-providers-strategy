@@ -14,7 +14,7 @@ class CopilotProviderOptions(BaseAIProviderOptions):
 
     client: CopilotClient
     model: str
-    timeout: int
+    timeout: float
 
 
 class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
@@ -40,6 +40,8 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
             raise ValueError("Copilot client must be connected to initialize session.")
         if options.model is None or str.strip(options.model) == "":
             raise ValueError("Valid model name must be provided for session initialization.")
+        if options.timeout <= 0:
+            raise ValueError("Timeout must be a positive floating point number for session initialization.")
 
         if self.session is not None:
             print("Warning: Copilot session already initialized. Reinitializing session.")
@@ -78,6 +80,6 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
         try:
             await self.session.destroy()
         except Exception as e:
-            print(f"Error disposing Copilot session: {e}")
+            raise RuntimeError(f"Failed to dispose Copilot session: {str(e)}") from e
         finally:
             self.session = None
