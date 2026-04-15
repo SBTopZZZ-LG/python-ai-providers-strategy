@@ -12,8 +12,8 @@ Design goals:
 - Standardize provider lifecycle operations (`initialize`, `send`, `dispose`).
 - Centralize construction and resource management in one place.
 - Make it straightforward to add new AI providers with minimal changes.
-- Provide a clean agent abstraction that encapsulates provider lifecycle and exposes a high-level query interface.
-- Allow tool definitions to live close to the code that uses them, while sharing common tools across agents without duplication.
+- Keep the `ai_providers` package fully self-contained — no concepts from the agent layer leak into it.
+- Define agents as declarative contracts (identity only), so the caller retains full control over lifecycle and configuration.
 
 ## Requirements
 
@@ -59,14 +59,14 @@ python3 main.py
 
 Module responsibilities:
 
-- `main.py`: Example entry point showing how to construct and run an agent.
-- `ai_providers/base.py`: Generic provider contract, base options, and all tool-related types (`BaseTool`, `ToolHandler`, `ToolInvocation`, `ToolResult`).
+- `main.py`: Example entry point showing how to construct a config, select an agent, and run a provider session.
+- `ai_providers/base.py`: Generic provider contract, base options, all tool-related types (`BaseTool`, `ToolHandler`, `ToolInvocation`, `ToolResult`), `JSONParseError`, and high-level query methods (`query`, `query_json`).
 - `ai_providers/copilot.py`: Concrete provider implementation for the Copilot SDK.
-- `ai_providers/factory.py`: Provider creation/disposal + managed context API.
+- `ai_providers/factory.py`: `AIProviderConfig`, provider creation/disposal, and the `managed_ai_provider` context manager.
 - `ai_providers/tools.py`: `define_tool` decorator — auto-generates JSON Schema from Pydantic models and wraps plain functions as `BaseTool` instances.
 - `ai_providers/__init__.py`: Public exports for package consumers.
-- `agents/base.py`: `BaseAgent` — manages provider lifecycle via `AsyncExitStack` and exposes `query` / `query_json`.
-- `agents/helpful_assistant.py`: Example concrete agent with its own agent-specific tool definitions.
+- `agents/base.py`: `BaseAgent` — an abstract base class declaring the two class-level attributes every agent must define: `system_prompt` and `tools`.
+- `agents/helpful_assistant.py`: Example concrete agent. Defines its persona and tools; contains no lifecycle logic.
 - `tools/`: Shared tool definitions reusable across multiple agents (stateless and stateful factory patterns).
 
 ## Provider + Factory Strategy
@@ -108,8 +108,8 @@ Example (`CopilotProviderOptions`):
 
 `managed_ai_provider(config)`:
 
-- Async context manager that creates provider on enter and disposes on exit.
-- Used internally by `BaseAgent`; available directly for lower-level access.
+- Async context manager that creates the provider, calls `initialize_session()`, and disposes fully on exit.
+- This is the primary entry point for running a provider session — callers use it directly.
 
 ### AsyncExitStack Lifecycle Design
 
@@ -130,75 +130,72 @@ In the factory dispose path:
 
 ## Agents
 
-### What `BaseAgent` Does
+### Design Philosophy
 
-`BaseAgent` wraps the full provider lifecycle so application code only interacts with a single `async with` context and two query methods.
+The `agents` package and the `ai_providers` package are intentionally decoupled. Earlier iterations coupled them by having agents accept a config, inject their `system_prompt` and `tools` into it, and manage the provider lifecycle internally. That approach created two problems:
 
-On enter:
+- The `ai_providers` package needed concepts (like a "backend-only" config) that only existed to serve the agent pattern.
+- Callers had no control over the provider lifecycle — it was hidden inside the agent.
 
-1. Opens an `AsyncExitStack`.
-2. Enters `managed_ai_provider` — creates the provider and registers its cleanup.
-3. Calls `provider.initialize_session()`.
+The current design separates responsibilities cleanly:
 
-On exit:
+- **`ai_providers`** owns everything about talking to a backend: construction, lifecycle, and querying. It has no knowledge of agents.
+- **`agents`** owns identity only: what persona to use and what tools to expose.
 
-1. `AsyncExitStack` unwinds in LIFO order: session disposal → client stop.
+### What `BaseAgent` Is
+
+`BaseAgent` is an abstract base class — a contract, not an implementation. It declares two class-level attributes that every concrete agent must define:
+
+```python
+class BaseAgent(ABC):
+    system_prompt: str
+    tools: list[BaseTool]
+```
+
+There is no constructor, no lifecycle logic, and no provider reference. Inheriting from `ABC` makes direct instantiation of `BaseAgent` a `TypeError`, which ensures subclasses always declare both attributes.
+
+### Defining an Agent
+
+A concrete agent is a class with two attributes:
+
+```python
+class HelpfulAssistantAgent(BaseAgent):
+    system_prompt: str = "You are a helpful assistant."
+    tools: list[BaseTool] = [ping_pong]
+```
+
+Nothing else. The agent carries no state and manages no resources.
+
+### How the Caller Uses an Agent
+
+The caller constructs the `AIProviderConfig`, drawing `system_prompt` and `tools` from the chosen agent class:
+
+```python
+config = AIProviderConfig(
+    provider_type=ProviderType.COPILOT,
+    model="gpt-4.1",
+    timeout=120,
+    system_prompt=HelpfulAssistantAgent.system_prompt,
+    tools=HelpfulAssistantAgent.tools,
+)
+
+async with managed_ai_provider(config) as provider:
+    response = await provider.query("Hello")
+    print(response)
+```
+
+This means:
+
+- Swapping agents is a single-line change (`HelpfulAssistantAgent` → `AnotherAgent`).
+- Lifecycle control stays entirely with the caller.
+- The `ai_providers` package remains fully agnostic of the agents package.
 
 ### Query Interface
 
-- `query(message: str) -> str` — send a message, return the raw response string.
-- `query_json(message: str, max_retries: int = 3) -> dict` — send a message, parse the response as JSON. On parse failure, automatically sends the error back to the model and retries up to `max_retries` times before raising `JSONParseError`.
+`query` and `query_json` are methods on `BaseAIProvider`, not on agents. They are available on any provider instance yielded by `managed_ai_provider`:
 
-### Recommended Usage (`BaseAgent` subclass)
-
-```python
-import asyncio
-from ai_providers import AIProviderConfig, ProviderType
-from agents import HelpfulAssistantAgent
-
-
-async def run() -> None:
-    config = AIProviderConfig(
-        provider_type=ProviderType.COPILOT,
-        model="gpt-4o",
-        timeout=120,
-    )
-
-    async with HelpfulAssistantAgent(config) as agent:
-        response = await agent.query("Hello")
-        print(response)
-
-
-if __name__ == "__main__":
-    asyncio.run(run())
-```
-
-### Direct Provider Usage (`managed_ai_provider`)
-
-If you need lower-level access without an agent wrapper:
-
-```python
-import asyncio
-from ai_providers import AIProviderConfig, ProviderType, managed_ai_provider
-
-
-async def run() -> None:
-    config = AIProviderConfig(
-        provider_type=ProviderType.COPILOT,
-        model="gpt-4o",
-        system_prompt="You are a helpful assistant.",
-        timeout=120,
-    )
-
-    async with managed_ai_provider(config) as provider:
-        await provider.initialize_session()
-        response = await provider.send_message_and_await_response("Hello")
-        print(response)
-
-
-if __name__ == "__main__":
-    asyncio.run(run())
-```
+- `provider.query(message: str) -> str` — send a message, return the raw response string.
+- `provider.query_json(message: str, max_retries: int = 3) -> dict` — send a message, parse the response as JSON. On parse failure, automatically sends the error back to the model and retries up to `max_retries` times before raising `JSONParseError`.
 
 ## Tools
 
@@ -241,12 +238,12 @@ Return values are normalised automatically: `str` → success result, `None` →
 
 #### Agent-specific tools
 
-Tools that belong to one agent should be defined at module level in the same file as the agent. They sit alongside the class they support and are not exported:
+Tools that belong to one agent should be defined at module level in the same file as the agent:
 
 ```python
 # agents/my_agent.py
 from pydantic import BaseModel, Field
-from ai_providers import AIProviderConfig, define_tool
+from ai_providers import BaseTool, define_tool
 from .base import BaseAgent
 
 class _SummaryParams(BaseModel):
@@ -257,9 +254,8 @@ def _summarise(params: _SummaryParams) -> str:
     return summarise(params.text)
 
 class MyAgent(BaseAgent):
-    def __init__(self, config: AIProviderConfig):
-        config.tools = [_summarise]
-        super().__init__(config)
+    system_prompt: str = "You are a summarisation assistant."
+    tools: list[BaseTool] = [_summarise]
 ```
 
 #### Shared tools (`tools/` package)
@@ -288,14 +284,20 @@ def make_query_tool(db_url: str) -> BaseTool:
     def query_db(params: QueryParams) -> str:
         return run_query(db_url, params.sql)  # db_url closed over
     return query_db
+```
 
-# agents/my_agent.py
+```python
+# main.py (or wherever the session is set up)
 from tools.database import make_query_tool
+from agents import MyAgent
 
-class MyAgent(BaseAgent):
-    def __init__(self, config: AIProviderConfig, db_url: str):
-        config.tools = [make_query_tool(db_url)]
-        super().__init__(config)
+config = AIProviderConfig(
+    provider_type=ProviderType.COPILOT,
+    model="gpt-4.1",
+    timeout=120,
+    system_prompt=MyAgent.system_prompt,
+    tools=[*MyAgent.tools, make_query_tool(db_url)],
+)
 ```
 
 The rule of thumb: if the dependency can be represented as data in the tool's arguments, keep it module-level. If it is a runtime resource that the agent lifecycle manages, bind it at construction time via a factory.
@@ -306,15 +308,42 @@ The rule of thumb: if the dependency can be represented as data in the tool's ar
 
 Add a new file under `agents/` inheriting from `BaseAgent`:
 
-- Set `config.system_prompt` in `__init__`.
-- Assign agent-specific tools to `config.tools` before calling `super().__init__(config)`.
-- Define agent-local tools at module level in the same file.
+- Define `system_prompt` as a class-level string attribute.
+- Define `tools` as a class-level list of `BaseTool` instances.
+- Define any agent-specific tools at module level in the same file.
+
+```python
+# agents/my_agent.py
+from ai_providers import BaseTool
+from .base import BaseAgent
+
+class MyAgent(BaseAgent):
+    system_prompt: str = "You are a specialist assistant."
+    tools: list[BaseTool] = []
+```
 
 ### 2. Export the agent
 
 Update `agents/__init__.py` exports.
 
-### 3. Add shared tools (optional)
+### 3. Use the agent
+
+In your entry point, pass the agent's attributes into `AIProviderConfig`:
+
+```python
+config = AIProviderConfig(
+    provider_type=ProviderType.COPILOT,
+    model="gpt-4.1",
+    timeout=120,
+    system_prompt=MyAgent.system_prompt,
+    tools=MyAgent.tools,
+)
+
+async with managed_ai_provider(config) as provider:
+    response = await provider.query("Hello")
+```
+
+### 4. Add shared tools (optional)
 
 If a tool is needed by multiple agents, add it to the `tools/` package following the stateless or stateful factory patterns described above.
 

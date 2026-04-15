@@ -17,21 +17,19 @@ class ProviderType(Enum):
 
 @dataclass
 class AIProviderConfig:
-    """Generic configuration for creating AI providers.
+    """Configuration for AI provider construction and session initialization.
 
     Attributes:
         provider_type: Provider backend to instantiate.
         model: Model identifier for provider session creation.
         timeout: Timeout in seconds for provider requests.
-        system_prompt: System prompt passed to the model at session initialization.
-            Defaults to ``"You are a helpful assistant."``; agents typically
-            override this when constructing a config.
-        tools: Provider-agnostic tool definitions to register with the session.
-            Defaults to an empty list (no tools).
+        system_prompt: System prompt passed to the model at session
+            initialization. Defaults to ``"You are a helpful assistant."``.
+        tools: Provider-agnostic tool definitions to register with the
+            session. Defaults to an empty list (no tools).
     """
 
     provider_type: ProviderType
-
     model: str
     timeout: float
     system_prompt: str = "You are a helpful assistant."
@@ -130,6 +128,7 @@ async def managed_ai_provider(config: AIProviderConfig):
 
     provider = await create_ai_provider(config)
     try:
+        await provider.initialize_session()
         yield provider
     finally:
         await dispose_ai_provider(provider)

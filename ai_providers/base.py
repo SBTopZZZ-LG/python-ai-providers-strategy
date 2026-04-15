@@ -1,9 +1,14 @@
 """Base class for AI providers."""
 
+import json
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypedDict, Union, TypeVar
+
+
+class JSONParseError(Exception):
+    """Raised when the AI fails to return valid JSON after all retries."""
 
 
 @dataclass
@@ -131,3 +136,54 @@ class BaseAIProvider(ABC, Generic[T]):
         Raises:
             Exception: Implementation-specific disposal failures.
         """
+
+    async def query(self, user_message: str) -> str:
+        """Send a message and return the raw response string.
+
+        Args:
+            user_message: Prompt content to send to the provider.
+
+        Returns:
+            Provider response text.
+        """
+
+        return await self.send_message_and_await_response(user_message)
+
+    async def query_json(self, user_message: str, max_retries: int = 3) -> dict:
+        """Send a message and return the response parsed as a dictionary.
+
+        Retries up to ``max_retries`` times on JSON parse failure, sending
+        the parse error back to the provider on each attempt.
+
+        Args:
+            user_message: Prompt content to send to the provider.
+            max_retries: Maximum number of retry attempts on parse failure.
+
+        Returns:
+            Parsed JSON response as a dictionary.
+
+        Raises:
+            JSONParseError: If the response cannot be parsed after all retries.
+        """
+
+        raw = await self.query(user_message)
+
+        for attempt in range(max_retries + 1):
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[-1]
+                cleaned = cleaned.rsplit("```", 1)[0].strip()
+
+            try:
+                return json.loads(cleaned)
+            except json.JSONDecodeError as exc:
+                if attempt == max_retries:
+                    raise JSONParseError(
+                        f"Failed to parse JSON after {max_retries + 1} attempts. "
+                        f"Last error: {exc}. Last response: {raw!r}"
+                    ) from exc
+
+                raw = await self.query(
+                    f"Your previous response was not valid JSON. "
+                    f"Parse error: {exc}. Please respond with valid JSON only."
+                )
