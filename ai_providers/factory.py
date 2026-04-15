@@ -3,6 +3,7 @@
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
+import copilot
 
 from .base import BaseAIProvider, BaseTool
 from .copilot import CopilotProvider, CopilotProviderOptions
@@ -21,8 +22,10 @@ class AIProviderConfig:
     Attributes:
         provider_type: Provider backend to instantiate.
         model: Model identifier for provider session creation.
-        system_prompt: System prompt passed to the model at session initialization.
         timeout: Timeout in seconds for provider requests.
+        system_prompt: System prompt passed to the model at session initialization.
+            Defaults to ``"You are a helpful assistant."``; agents typically
+            override this when constructing a config.
         tools: Provider-agnostic tool definitions to register with the session.
             Defaults to an empty list (no tools).
     """
@@ -30,8 +33,8 @@ class AIProviderConfig:
     provider_type: ProviderType
 
     model: str
-    system_prompt: str
     timeout: float
+    system_prompt: str = "You are a helpful assistant."
     tools: list[BaseTool] = field(default_factory=list)
 
 
@@ -50,8 +53,6 @@ async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
     """
 
     if config.provider_type == ProviderType.COPILOT:
-        import copilot
-
         async with AsyncExitStack() as stack:
             client = copilot.CopilotClient()
 
