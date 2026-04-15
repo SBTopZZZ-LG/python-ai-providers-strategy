@@ -2,8 +2,9 @@
 
 
 from dataclasses import dataclass, field
-from typing import Optional
-from copilot import CopilotClient, CopilotSession, Tool
+from typing import Optional, cast
+from copilot import CopilotClient, CopilotSession, SessionConfig, Tool
+from copilot import ToolHandler as SDKToolHandler
 
 from .base import BaseAIProvider, BaseAIProviderOptions, BaseTool
 
@@ -89,19 +90,22 @@ class CopilotProvider(BaseAIProvider[CopilotProviderOptions]):
                 name=t.name,
                 description=t.description,
                 parameters=t.parameters,
-                handler=t.handler,
+                handler=cast(SDKToolHandler, t.handler),
             )
             for t in options.tools
         ]
 
-        self.session = await options.client.create_session({
+        session_config: SessionConfig = {
             "model": options.model,
             "system_message": {
                 "content": options.system_prompt,
                 "mode": "replace"
             },
-            **({"tools": sdk_tools} if sdk_tools else {}),
-        })
+        }
+        if sdk_tools:
+            session_config["tools"] = sdk_tools
+
+        self.session = await options.client.create_session(session_config)
 
     async def send_message_and_await_response(self, message: str) -> str:
         """Send a prompt and wait for a Copilot response.

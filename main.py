@@ -1,14 +1,21 @@
 """Main module to demonstrate usage of the AI provider framework."""
 
 import asyncio
-from typing import Any
 
-from ai_providers import AIProviderConfig, BaseTool, ProviderType, managed_ai_provider
+from ai_providers import (
+    AIProviderConfig,
+    BaseTool,
+    ProviderType,
+    ToolInvocation,
+    ToolResult,
+    managed_ai_provider,
+)
 
 
-async def _ping_handler(invocation: dict[str, Any]) -> dict[str, Any]:  # noqa: RUF029
+def _ping_handler(invocation: ToolInvocation) -> ToolResult:
     """Echo the ping value back as a pong."""
-    value = invocation.get("arguments", {}).get("value", "")
+    value = invocation["arguments"].get(
+        "value", "") if invocation["arguments"] else ""
     return {
         "textResultForLlm": f"pong: {value}",
         "resultType": "success",

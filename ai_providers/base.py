@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypedDict, Union, TypeVar
 
 
 @dataclass
@@ -11,11 +11,47 @@ class BaseAIProviderOptions:
     """Base options for all AI providers."""
 
 
-ToolHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
-"""Async callable that handles a tool invocation.
+class ToolInvocation(TypedDict):
+    """Invocation details passed to a tool handler by the model.
 
-Receives an invocation dict (containing at minimum an ``arguments`` key) and
-returns a result dict understood by the underlying provider SDK.
+    Attributes:
+        session_id: Identifier of the session that triggered the invocation.
+        tool_call_id: Unique identifier for this specific tool call.
+        tool_name: Name of the tool being invoked.
+        arguments: Parsed arguments provided by the model for this call.
+    """
+
+    session_id: str
+    tool_call_id: str
+    tool_name: str
+    arguments: Any
+
+
+ToolResultType = Literal["success", "failure", "rejected", "denied"]
+
+
+class ToolResult(TypedDict, total=False):
+    """Result returned by a tool handler back to the model.
+
+    Attributes:
+        textResultForLlm: Text content returned to the model.
+        resultType: Outcome classification of the tool call.
+        error: Error message if the tool call failed.
+        sessionLog: Human-readable log entry for the tool call.
+    """
+
+    textResultForLlm: str
+    resultType: ToolResultType
+    error: str
+    sessionLog: str
+
+
+ToolHandler = Callable[[ToolInvocation],
+                       Union[ToolResult, Awaitable[ToolResult]]]
+"""Callable that handles a tool invocation.
+
+Accepts a :class:`ToolInvocation` and returns either a :class:`ToolResult`
+directly (sync) or an awaitable that resolves to one (async).
 """
 
 
@@ -28,7 +64,9 @@ class BaseTool:
         description: Natural-language description used by the model to decide
             when to invoke this tool.
         parameters: JSON Schema object describing the tool's accepted arguments.
-        handler: Async callable invoked when the model calls this tool.
+        handler: Callable invoked when the model calls this tool. May be sync
+            or async; receives a :class:`ToolInvocation` and must return a
+            :class:`ToolResult`.
     """
 
     name: str
