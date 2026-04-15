@@ -383,7 +383,7 @@ Planned providers can be added as new rows as they are implemented.
 - [x] Add `agents` package with `BaseAgent` (AsyncExitStack lifecycle, `query`, `query_json`) and `HelpfulAssistantAgent` example
 - [x] Add `define_tool` decorator with Pydantic schema auto-generation
 - [x] Add `tools/` package for shared tools with stateless and stateful factory patterns
-- [ ] Add agent factory / registry (similar to `ai_providers/factory.py`) under `agents/factory.py`
+- ~~[ ] Add agent factory / registry (similar to `ai_providers/factory.py`) under `agents/factory.py`~~
 - [ ] Unit/Integration tests for `ai_providers`, `agents`, and `tools` packages
 - [ ] Add Claude AI provider
 - [ ] Add OpenAI provider
