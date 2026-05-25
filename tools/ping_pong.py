@@ -34,6 +34,7 @@ class _PingPongParams(BaseModel):
 # Stateless tool
 # ---------------------------------------------------------------------------
 
+
 @define_tool(description="Echoes back the provided value as a pong response.")
 def ping_pong(params: _PingPongParams) -> str:
     """Return the value unchanged, wrapped in a 'pong' response."""
@@ -44,6 +45,7 @@ def ping_pong(params: _PingPongParams) -> str:
 # ---------------------------------------------------------------------------
 # Stateful tool factory
 # ---------------------------------------------------------------------------
+
 
 def make_prefixed_ping_pong_tool(prefix: str) -> BaseTool:
     """Return a ping-pong tool that prepends *prefix* to every response.

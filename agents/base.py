@@ -18,4 +18,4 @@ class BaseAgent(ABC):
     """
 
     system_prompt: str
-    tools: list[BaseTool]
+    tools: tuple[BaseTool, ...]

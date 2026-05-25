@@ -9,15 +9,16 @@ This project is an async-first Python template that applies a provider strategy 
 Design goals:
 
 - Decouple application code from provider-specific SDK logic.
-- Standardize provider lifecycle operations (`initialize`, `send`, `dispose`).
+- Standardize provider lifecycle operations (`start`, `send`, `stop`).
 - Centralize construction and resource management in one place.
-- Make it straightforward to add new AI providers with minimal changes.
+- Make it straightforward to add new providers with minimal changes.
 - Keep the `ai_providers` package fully self-contained — no concepts from the agent layer leak into it.
 - Define agents as declarative contracts (identity only), so the caller retains full control over lifecycle and configuration.
+- Use Pydantic for options validation and discriminated unions.
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - Dependencies from `requirements.txt`
 
 Install dependencies:
@@ -40,13 +41,16 @@ python3 main.py
 ├── README.md
 ├── CONTRIBUTING.md
 ├── requirements.txt
+├── pyproject.toml
 ├── pyrightconfig.json
 ├── main.py
 ├── ai_providers/
 │   ├── __init__.py
 │   ├── base.py
+│   ├── config.py
 │   ├── copilot.py
 │   ├── factory.py
+│   ├── registry.py
 │   └── tools.py
 ├── agents/
 │   ├── __init__.py
@@ -59,11 +63,13 @@ python3 main.py
 
 Module responsibilities:
 
-- `main.py`: Example entry point showing how to construct a config, select an agent, and run a provider session.
-- `ai_providers/base.py`: Generic provider contract, base options, all tool-related types (`BaseTool`, `ToolHandler`, `ToolInvocation`, `ToolResult`), `JSONParseError`, and high-level query methods (`query`, `query_json`).
-- `ai_providers/copilot.py`: Concrete provider implementation for the Copilot SDK.
-- `ai_providers/factory.py`: `AIProviderConfig`, provider creation/disposal, and the `managed_ai_provider` context manager.
+- `main.py`: Example entry point showing how to construct options, select an agent, and run a provider session.
+- `ai_providers/base.py`: Generic provider contract, base options (Pydantic), all tool-related types (`BaseTool`, `ToolHandler`, `ToolInvocation`, `ToolResult`), `JSONParseError`, and high-level query methods (`query`, `query_json`).
+- `ai_providers/copilot.py`: Concrete provider implementation for the Copilot SDK (0.3.x).
+- `ai_providers/factory.py`: Provider creation/disposal, and the `managed_ai_provider` context manager.
 - `ai_providers/tools.py`: `define_tool` decorator — auto-generates JSON Schema from Pydantic models and wraps plain functions as `BaseTool` instances.
+- `ai_providers/config.py`: `AIConfig` type alias for Pydantic discriminated union of provider options.
+- `ai_providers/registry.py`: Provider registry with `@register_provider` decorator and `get_provider_class` lookup.
 - `ai_providers/__init__.py`: Public exports for package consumers.
 - `agents/base.py`: `BaseAgent` — an abstract base class declaring the two class-level attributes every agent must define: `system_prompt` and `tools`.
 - `agents/helpful_assistant.py`: Example concrete agent. Defines its persona and tools; contains no lifecycle logic.
@@ -75,58 +81,61 @@ Module responsibilities:
 
 `BaseAIProvider` defines the lifecycle contract for all providers:
 
-- `initialize_session()`
+- `start()` — establish connections and initialise the session
 - `send_message_and_await_response(message: str) -> str`
-- `dispose_session()`
+- `stop()` — tear down the session and release connections
 
 Every provider must implement these async methods.
 
-### Provider Options
+### Provider Options (Pydantic)
 
-Each concrete provider has a typed options dataclass inheriting from `BaseAIProviderOptions`.
+Each concrete provider has a typed options class inheriting from `BaseAIOptions` (a Pydantic `BaseModel`).
 
-Example (`CopilotProviderOptions`):
+Example (`CopilotOptions`):
 
-- `client`
-- `model`
-- `system_prompt`
-- `timeout`
+- `type: Literal["copilot"]` — provider type discriminator
+- `model: str` — model identifier (default: `"claude-sonnet-4.6"`)
+- `timeout: float` — timeout in seconds (default: `300.0`)
+- `github_token: str | None` — optional GitHub PAT for authentication
 
 ### Factory Responsibilities
 
-`create_ai_provider(config)`:
+`create_ai_provider(options, system_prompt, tools)`:
 
-- Accepts generic `AIProviderConfig`.
-- Selects concrete provider by `ProviderType`.
-- Starts provider dependencies (for Copilot: `CopilotClient.start()`).
-- Returns a configured provider instance.
+- Accepts provider options, system prompt, and tools directly.
+- Looks up the provider class via the registry using `options.type`.
+- Returns an **unstarted** provider instance.
 
 `dispose_ai_provider(provider)`:
 
-- Disposes provider session and associated client resources.
-- Raises typed errors on unsupported providers or cleanup failures.
+- Calls `provider.stop()` to release all resources.
 
-`managed_ai_provider(config)`:
+`managed_ai_provider(options, system_prompt, tools)`:
 
-- Async context manager that creates the provider, calls `initialize_session()`, and disposes fully on exit.
+- Async context manager that creates the provider, calls `start()`, and stops fully on exit.
 - This is the primary entry point for running a provider session — callers use it directly.
 
-### AsyncExitStack Lifecycle Design
+### Registry Pattern
 
-Both the factory and `BaseAgent` use `contextlib.AsyncExitStack` for deterministic LIFO cleanup.
+You can read more about the Registry Pattern here: [geeksforgeeks.org/system-design/registry-pattern](https://www.geeksforgeeks.org/system-design/registry-pattern/).
 
-In the factory create path:
+Providers are registered via a class decorator:
 
-1. Start client.
-2. Register rollback callback (`client.stop`) in the stack.
-3. Build provider.
-4. Call `stack.pop_all()` on success so rollback does not run.
+```python
+from ai_providers import register_provider, BaseAIProvider, BaseAIOptions
 
-In the factory dispose path:
+@register_provider("copilot")
+class CopilotProvider(BaseAIProvider[CopilotOptions]):
+    ...
+```
 
-1. Register `client.stop` callback (if available).
-2. Register `provider.dispose_session` callback.
-3. Stack unwinds in reverse order: session disposal → client stop.
+The factory looks up providers by their type ID:
+
+```python
+from ai_providers import get_provider_class
+
+provider_class = get_provider_class("copilot")
+```
 
 ## Agents
 
@@ -149,7 +158,7 @@ The current design separates responsibilities cleanly:
 ```python
 class BaseAgent(ABC):
     system_prompt: str
-    tools: list[BaseTool]
+    tools: tuple[BaseTool, ...]
 ```
 
 There is no constructor, no lifecycle logic, and no provider reference. Inheriting from `ABC` makes direct instantiation of `BaseAgent` a `TypeError`, which ensures subclasses always declare both attributes.
@@ -161,25 +170,26 @@ A concrete agent is a class with two attributes:
 ```python
 class HelpfulAssistantAgent(BaseAgent):
     system_prompt: str = "You are a helpful assistant."
-    tools: list[BaseTool] = [ping_pong]
+    tools: tuple[BaseTool, ...] = (ping_pong, prefixed_ping_pong)
 ```
 
 Nothing else. The agent carries no state and manages no resources.
 
 ### How the Caller Uses an Agent
 
-The caller constructs the `AIProviderConfig`, drawing `system_prompt` and `tools` from the chosen agent class:
+The caller constructs the options, drawing `system_prompt` and `tools` from the chosen agent class:
 
 ```python
-config = AIProviderConfig(
-    provider_type=ProviderType.COPILOT,
-    model="gpt-4.1",
-    timeout=120,
+from ai_providers import CopilotOptions, managed_ai_provider
+from agents import HelpfulAssistantAgent
+
+options = CopilotOptions(model="claude-sonnet-4.6", timeout=120)
+
+async with managed_ai_provider(
+    options,
     system_prompt=HelpfulAssistantAgent.system_prompt,
     tools=HelpfulAssistantAgent.tools,
-)
-
-async with managed_ai_provider(config) as provider:
+) as provider:
     response = await provider.query("Hello")
     print(response)
 ```
@@ -215,7 +225,7 @@ def search_web(params: SearchParams) -> str:
     return do_search(params.query)
 ```
 
-The decorated name becomes a `BaseTool` instance — assign it to `config.tools` directly.
+The decorated name becomes a `BaseTool` instance — assign it to the `tools` argument directly.
 
 `define_tool` can also be used as a plain function call when the handler is defined elsewhere:
 
@@ -232,7 +242,7 @@ tool = define_tool("search_web", description="Search the web", handler=my_handle
 | `fn(params: PydanticModel)` | Parameters validated and unpacked via Pydantic |
 | `fn(params: PydanticModel, invocation: ToolInvocation)` | Params + raw invocation |
 
-Return values are normalised automatically: `str` → success result, `None` → empty success, `dict` → passed through, Pydantic model → JSON-serialised.
+Return values are normalised automatically: `str` → success result, `None` → empty success, `dict` → passed through (or JSON-serialized if no `resultType`), `list` → JSON-serialized, Pydantic model → JSON-serialized.
 
 ### Where to Define Tools
 
@@ -255,7 +265,7 @@ def _summarise(params: _SummaryParams) -> str:
 
 class MyAgent(BaseAgent):
     system_prompt: str = "You are a summarisation assistant."
-    tools: list[BaseTool] = [_summarise]
+    tools: tuple[BaseTool, ...] = (_summarise,)
 ```
 
 #### Shared tools (`tools/` package)
@@ -272,7 +282,7 @@ def search_web(params: SearchParams) -> str:
 
 # agents/my_agent.py
 from tools.search import search_web
-config.tools = [search_web]
+tools = (search_web,)
 ```
 
 **Stateful factory** — tools that close over a runtime dependency (e.g. a database connection or API client). Define a factory function that accepts the dependency and returns a `BaseTool`. The dependency is bound at agent construction time and is invisible to the model:
@@ -291,13 +301,10 @@ def make_query_tool(db_url: str) -> BaseTool:
 from tools.database import make_query_tool
 from agents import MyAgent
 
-config = AIProviderConfig(
-    provider_type=ProviderType.COPILOT,
-    model="gpt-4.1",
-    timeout=120,
-    system_prompt=MyAgent.system_prompt,
-    tools=[*MyAgent.tools, make_query_tool(db_url)],
-)
+tools = (*MyAgent.tools, make_query_tool(db_url))
+
+async with managed_ai_provider(options, system_prompt=MyAgent.system_prompt, tools=tools) as provider:
+    response = await provider.query("Hello")
 ```
 
 The rule of thumb: if the dependency can be represented as data in the tool's arguments, keep it module-level. If it is a runtime resource that the agent lifecycle manages, bind it at construction time via a factory.
@@ -309,7 +316,7 @@ The rule of thumb: if the dependency can be represented as data in the tool's ar
 Add a new file under `agents/` inheriting from `BaseAgent`:
 
 - Define `system_prompt` as a class-level string attribute.
-- Define `tools` as a class-level list of `BaseTool` instances.
+- Define `tools` as a class-level tuple of `BaseTool` instances.
 - Define any agent-specific tools at module level in the same file.
 
 ```python
@@ -319,7 +326,7 @@ from .base import BaseAgent
 
 class MyAgent(BaseAgent):
     system_prompt: str = "You are a specialist assistant."
-    tools: list[BaseTool] = []
+    tools: tuple[BaseTool, ...] = ()
 ```
 
 ### 2. Export the agent
@@ -328,18 +335,19 @@ Update `agents/__init__.py` exports.
 
 ### 3. Use the agent
 
-In your entry point, pass the agent's attributes into `AIProviderConfig`:
+In your entry point, pass the agent's attributes to `managed_ai_provider`:
 
 ```python
-config = AIProviderConfig(
-    provider_type=ProviderType.COPILOT,
-    model="gpt-4.1",
-    timeout=120,
+from ai_providers import CopilotOptions, managed_ai_provider
+from agents import MyAgent
+
+options = CopilotOptions(model="claude-sonnet-4.6", timeout=120)
+
+async with managed_ai_provider(
+    options,
     system_prompt=MyAgent.system_prompt,
     tools=MyAgent.tools,
-)
-
-async with managed_ai_provider(config) as provider:
+) as provider:
     response = await provider.query("Hello")
 ```
 
@@ -355,64 +363,77 @@ If a tool is needed by multiple agents, add it to the `tools/` package following
 
 Add a new file under `ai_providers/` (for example `openai_provider.py`) with:
 
-- An options dataclass inheriting `BaseAIProviderOptions`.
+- An options class inheriting `BaseAIOptions` with `type: Literal["openai"]`.
 - A provider class inheriting `BaseAIProvider[YourOptions]`.
-- Implementations for all lifecycle methods.
+- Implementations for `start()`, `stop()`, and `send_message_and_await_response()`.
+- Decorate the class with `@register_provider("openai")`.
 
-### 2. Add enum value
+### 2. Add to config union
 
-Update `ProviderType` in `ai_providers/factory.py`.
+Update `AIConfig` in `ai_providers/config.py`:
 
-### 3. Extend factory create/dispose
+```python
+AIConfig = Annotated[
+    Union[CopilotOptions, OpenAIOptions],  # Add new options here
+    Field(discriminator="type"),
+]
+```
 
-In `create_ai_provider(config)`:
-
-- Add a branch for the new provider.
-- Start SDK/client resources.
-- Register rollback callbacks with `AsyncExitStack`.
-- Construct provider and return after `stack.pop_all()`.
-
-In `dispose_ai_provider(provider)`:
-
-- Add type-specific cleanup registration.
-- Keep cleanup operations stack-managed and async-safe.
-
-### 4. Export the new provider
+### 3. Export the new provider
 
 Update `ai_providers/__init__.py` exports.
 
-### 5. Add dependency
+### 4. Add dependency
 
 Update `requirements.txt` if the provider requires an SDK.
 
 ## Error Handling Notes
 
-- Invalid or unsupported providers raise `ValueError`.
+- Unsupported provider types raise `KeyError`.
 - Startup/initialization/cleanup runtime failures raise `RuntimeError`.
-- Concrete providers should validate required options early.
+- Concrete providers should validate required options early and raise `ValueError` for invalid configuration.
 
 ## Extension Guidelines
 
 - Keep provider-specific SDK code inside provider modules, not app code.
 - Keep `main.py` orchestration-oriented and provider-agnostic.
 - Prefer `managed_ai_provider` in app code for automatic lifecycle handling.
-- Keep options strongly typed to simplify validation and refactoring.
+- Keep options strongly typed with Pydantic to simplify validation and refactoring.
 
 ## Current Dependency
 
 | Provider | Package | Version Constraint | Notes |
 | --- | --- | --- | --- |
-| Copilot | github-copilot-sdk | >=0.1.25,<0.2.0 | Active provider in this template |
+| Copilot | github-copilot-sdk | >=0.3.0,<0.4.0 | Active provider in this template |
 
 Planned providers can be added as new rows as they are implemented.
 
+## Code Quality
+
+This project uses [ruff](https://docs.astral.sh/ruff/) for linting and formatting.
+
+Install pre-commit hooks:
+
+```bash
+pre-commit install
+```
+
+Run manually:
+
+```bash
+ruff check .
+ruff format .
+```
+
 ## TODO
 
-- [x] Use AsyncExitStack to manage resource life-cycle and maintain clean code
-- [x] Add `agents` package with `BaseAgent` (AsyncExitStack lifecycle, `query`, `query_json`) and `HelpfulAssistantAgent` example
+- [x] Use Pydantic for options with discriminated union support
+- [x] Add registry pattern for provider discovery
+- [x] Add `agents` package with `BaseAgent` (identity only) and `HelpfulAssistantAgent` example
 - [x] Add `define_tool` decorator with Pydantic schema auto-generation
 - [x] Add `tools/` package for shared tools with stateless and stateful factory patterns
-- ~~[ ] Add agent factory / registry (similar to `ai_providers/factory.py`) under `agents/factory.py`~~
+- [x] Add ruff linting and formatting with pre-commit hooks
+- [ ] Add agent factory / registry (similar to `ai_providers/factory.py`) under `agents/factory.py`
 - [ ] Unit/Integration tests for `ai_providers`, `agents`, and `tools` packages
 - [ ] Add Claude AI provider
 - [ ] Add OpenAI provider

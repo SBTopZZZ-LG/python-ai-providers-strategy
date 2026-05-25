@@ -1,21 +1,33 @@
-"""AI Providers package."""
+"""AI provider implementations."""
 
-from .base import BaseAIProvider, BaseAIProviderOptions, \
-    BaseTool, JSONParseError, ToolHandler, ToolInvocation, ToolResult, ToolResultType
-from .copilot import CopilotProvider, CopilotProviderOptions
-from .factory import AIProviderConfig, ProviderType, \
-    create_ai_provider, dispose_ai_provider, managed_ai_provider
+from .base import (
+    BaseAIOptions,
+    BaseAIProvider,
+    BaseTool,
+    JSONParseError,
+    ToolHandler,
+    ToolInvocation,
+    ToolResult,
+    ToolResultType,
+)
+from .config import AIConfig
+from .copilot import CopilotOptions, CopilotProvider
+from .factory import (
+    create_ai_provider,
+    dispose_ai_provider,
+    managed_ai_provider,
+)
+from .registry import get_provider_class, register_provider
 from .tools import define_tool
 
 __all__ = [
-    "AIProviderConfig",
+    "AIConfig",
+    "BaseAIOptions",
     "BaseAIProvider",
-    "BaseAIProviderOptions",
     "BaseTool",
-    "JSONParseError",
+    "CopilotOptions",
     "CopilotProvider",
-    "CopilotProviderOptions",
-    "ProviderType",
+    "JSONParseError",
     "ToolHandler",
     "ToolInvocation",
     "ToolResult",
@@ -23,5 +35,7 @@ __all__ = [
     "create_ai_provider",
     "define_tool",
     "dispose_ai_provider",
-    "managed_ai_provider"
+    "get_provider_class",
+    "managed_ai_provider",
+    "register_provider",
 ]

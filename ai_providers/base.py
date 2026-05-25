@@ -4,16 +4,20 @@ import json
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Generic, Literal, TypedDict, Union, TypeVar
+from typing import Any, Generic, Literal, TypedDict, TypeVar
+
+from pydantic import BaseModel
 
 
 class JSONParseError(Exception):
     """Raised when the AI fails to return valid JSON after all retries."""
 
 
-@dataclass
-class BaseAIProviderOptions:
-    """Base options for all AI providers."""
+class BaseAIOptions(BaseModel):
+    """Base Pydantic model for AI provider configuration options."""
+
+    type: str
+    """Provider type discriminator. Concrete subclasses narrow this to a ``Literal``."""
 
 
 class ToolInvocation(TypedDict):
@@ -42,17 +46,14 @@ class ToolResult(TypedDict, total=False):
         textResultForLlm: Text content returned to the model.
         resultType: Outcome classification of the tool call.
         error: Error message if the tool call failed.
-        sessionLog: Human-readable log entry for the tool call.
     """
 
     textResultForLlm: str
     resultType: ToolResultType
     error: str
-    sessionLog: str
 
 
-ToolHandler = Callable[[ToolInvocation],
-                       Union[ToolResult, Awaitable[ToolResult]]]
+ToolHandler = Callable[[ToolInvocation], ToolResult | Awaitable[ToolResult]]
 """Callable that handles a tool invocation.
 
 Accepts a :class:`ToolInvocation` and returns either a :class:`ToolResult`
@@ -80,36 +81,49 @@ class BaseTool:
     handler: ToolHandler
 
 
-T = TypeVar('T', bound=BaseAIProviderOptions)
+T = TypeVar("T", bound=BaseAIOptions)
 
 
 class BaseAIProvider(ABC, Generic[T]):
-    """Abstract base class for AI providers.
-
-    Args:
-        options: Provider-specific options used to configure the provider.
-    """
+    """Abstract base class for AI providers."""
 
     options: T
+    _system_prompt: str
+    _tools: tuple[BaseTool, ...]
 
-    def __init__(self, options: T):
+    def __init__(
+        self,
+        options: T,
+        *,
+        system_prompt: str,
+        tools: tuple[BaseTool, ...],
+    ):
         """Initialize the base provider.
 
         Args:
-            options: Provider-specific options object.
+            options: Provider options.
+            system_prompt: System prompt passed to the model at session initialisation.
+            tools: Provider-agnostic tool definitions to register with the session.
         """
 
         self.options = options
+        self._system_prompt = system_prompt
+        self._tools = tools
 
     @abstractmethod
-    async def initialize_session(self):
-        """Initialize the AI provider session.
-
-        Returns:
-            None
+    async def start(self) -> None:
+        """Start the provider: establish connections and initialise the session.
 
         Raises:
-            Exception: Implementation-specific initialization failures.
+            RuntimeError: If the provider fails to start.
+        """
+
+    @abstractmethod
+    async def stop(self) -> None:
+        """Stop the provider: tear down the session and release connections.
+
+        Raises:
+            RuntimeError: If cleanup fails.
         """
 
     @abstractmethod
@@ -124,17 +138,6 @@ class BaseAIProvider(ABC, Generic[T]):
 
         Raises:
             Exception: Implementation-specific request/response failures.
-        """
-
-    @abstractmethod
-    async def dispose_session(self):
-        """Dispose of the AI provider session.
-
-        Returns:
-            None
-
-        Raises:
-            Exception: Implementation-specific disposal failures.
         """
 
     async def query(self, user_message: str) -> str:
@@ -187,3 +190,5 @@ class BaseAIProvider(ABC, Generic[T]):
                     f"Your previous response was not valid JSON. "
                     f"Parse error: {exc}. Please respond with valid JSON only."
                 )
+
+        return {}
