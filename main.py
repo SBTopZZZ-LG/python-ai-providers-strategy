@@ -11,16 +11,17 @@ async def main():
     """Main function to demonstrate usage of the AI provider framework."""
 
     print("Initializing configuration...")
-    helpful_assistant_provider_config = CopilotOptions(
+    helpful_assistant_agent = HelpfulAssistantAgent()
+    helpful_assistant_agent_options = CopilotOptions(
         model="claude-haiku-4.5",  # or gpt-5
         timeout=120,  # 2 minutes
     )
 
     try:
         async with managed_ai_provider(
-            helpful_assistant_provider_config,
-            system_prompt=HelpfulAssistantAgent.system_prompt,
-            tools=HelpfulAssistantAgent.tools,
+            helpful_assistant_agent_options,
+            system_prompt=helpful_assistant_agent.get_system_prompt(),
+            tools=helpful_assistant_agent.get_tools(),
         ) as helpful_assistant_provider:
             print("Sending message...")
             question = "Can you give me a 2-sentence summary of the MCP protocol?"
