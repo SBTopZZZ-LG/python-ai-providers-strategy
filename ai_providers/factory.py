@@ -5,8 +5,13 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from .base import BaseAIProvider, BaseTool
-from .copilot import CopilotProvider, CopilotProviderOptions
 from .openai import OpenAIProvider, OpenAIProviderOptions
+
+try:
+    from .copilot import CopilotProvider, CopilotProviderOptions
+except ImportError:
+    CopilotProvider = None  # type: ignore[assignment,misc]
+    CopilotProviderOptions = None  # type: ignore[assignment,misc]
 
 
 class ProviderType(Enum):
@@ -56,6 +61,12 @@ async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
     """
 
     if config.provider_type == ProviderType.COPILOT:
+        if CopilotProvider is None:
+            raise ValueError(
+                "Copilot provider is not available. "
+                "Install the 'copilot' package to use this provider."
+            )
+
         import copilot
 
         async with AsyncExitStack() as stack:
@@ -107,18 +118,15 @@ async def dispose_ai_provider(provider: BaseAIProvider):
         None
 
     Raises:
-        ValueError: If the provider type is unsupported.
         RuntimeError: If any cleanup step fails.
     """
 
     try:
         async with AsyncExitStack() as stack:
-            if isinstance(provider, CopilotProvider):
+            if CopilotProvider is not None and isinstance(provider, CopilotProvider):
                 copilot_provider_client = provider.options.client
                 if copilot_provider_client is not None:
                     stack.push_async_callback(copilot_provider_client.stop)
-            else:
-                raise ValueError(f"Unknown provider type: {type(provider)}")
 
             stack.push_async_callback(provider.dispose_session)
     except ValueError:

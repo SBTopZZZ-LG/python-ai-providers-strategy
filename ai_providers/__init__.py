@@ -10,7 +10,12 @@ from .base import (
     ToolResult,
     ToolResultType,
 )
-from .copilot import CopilotProvider, CopilotProviderOptions
+
+try:
+    from .copilot import CopilotProvider, CopilotProviderOptions
+except ImportError:
+    pass
+
 from .factory import (
     AIProviderConfig,
     ProviderType,
