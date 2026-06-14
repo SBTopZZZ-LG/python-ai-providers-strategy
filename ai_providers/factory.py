@@ -3,16 +3,22 @@
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
-import copilot
 
 from .base import BaseAIProvider, BaseTool
-from .copilot import CopilotProvider, CopilotProviderOptions
+from .openai import OpenAIProvider, OpenAIProviderOptions
+
+try:
+    from .copilot import CopilotProvider, CopilotProviderOptions
+except ImportError:
+    CopilotProvider = None  # type: ignore[assignment,misc]
+    CopilotProviderOptions = None  # type: ignore[assignment,misc]
 
 
 class ProviderType(Enum):
     """Enum for supported AI provider types."""
 
     COPILOT = "copilot"
+    OPENAI = "openai"
 
 
 @dataclass
@@ -27,6 +33,8 @@ class AIProviderConfig:
             initialization. Defaults to ``"You are a helpful assistant."``.
         tools: Provider-agnostic tool definitions to register with the
             session. Defaults to an empty list (no tools).
+        api_key: API key to use against the provider/model.
+        base_url: Base url of the provider API.
     """
 
     provider_type: ProviderType
@@ -34,6 +42,8 @@ class AIProviderConfig:
     timeout: float
     system_prompt: str = "You are a helpful assistant."
     tools: list[BaseTool] = field(default_factory=list)
+    api_key: str = "none"
+    base_url: str = "https://api.openai.com/v1"
 
 
 async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
@@ -51,15 +61,21 @@ async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
     """
 
     if config.provider_type == ProviderType.COPILOT:
+        if CopilotProvider is None:
+            raise ValueError(
+                "Copilot provider is not available. "
+                "Install the 'copilot' package to use this provider."
+            )
+
+        import copilot
+
         async with AsyncExitStack() as stack:
             client = copilot.CopilotClient()
 
             try:
                 await client.start()
             except Exception as e:
-                raise RuntimeError(
-                    f"Failed to start Copilot client: {str(e)}") from e
-
+                raise RuntimeError(f"Failed to start Copilot client: {str(e)}") from e
             stack.push_async_callback(client.stop)
 
             try:
@@ -73,10 +89,21 @@ async def create_ai_provider(config: AIProviderConfig) -> BaseAIProvider:
                 provider = CopilotProvider(options)
             except Exception as e:
                 raise RuntimeError(
-                    f"Failed to initialize Copilot provider: {str(e)}") from e
-
+                    f"Failed to initialize Copilot provider: {str(e)}"
+                ) from e
             stack.pop_all()
             return provider
+
+    if config.provider_type == ProviderType.OPENAI:
+        options = OpenAIProviderOptions(
+            api_key=config.api_key,
+            base_url=config.base_url,
+            model=config.model,
+            system_prompt=config.system_prompt,
+            timeout=config.timeout,
+            tools=config.tools,
+        )
+        return OpenAIProvider(options)
 
     raise ValueError(f"Unknown provider type: {config.provider_type}")
 
@@ -91,18 +118,15 @@ async def dispose_ai_provider(provider: BaseAIProvider):
         None
 
     Raises:
-        ValueError: If the provider type is unsupported.
         RuntimeError: If any cleanup step fails.
     """
 
     try:
         async with AsyncExitStack() as stack:
-            if isinstance(provider, CopilotProvider):
+            if CopilotProvider is not None and isinstance(provider, CopilotProvider):
                 copilot_provider_client = provider.options.client
                 if copilot_provider_client is not None:
                     stack.push_async_callback(copilot_provider_client.stop)
-            else:
-                raise ValueError(f"Unknown provider type: {type(provider)}")
 
             stack.push_async_callback(provider.dispose_session)
     except ValueError:

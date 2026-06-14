@@ -11,15 +11,25 @@ async def main():
 
     print("Initializing configuration...")
     helpful_assistant_provider_config = AIProviderConfig(
+        # OpenAI compatible
+        # provider_type=ProviderType.OPENAI,
+        # base_url="https://opencode.ai/zen/go/v1",
+        # api_key="sk-...",
+        # model="mimo-v2.5",
+        #
+        # Copilot
         provider_type=ProviderType.COPILOT,
         model="gpt-4.1",  # or gpt-5
+        #
         timeout=120,  # 2 minutes
         system_prompt=HelpfulAssistantAgent.system_prompt,
         tools=HelpfulAssistantAgent.tools,
     )
 
     try:
-        async with managed_ai_provider(helpful_assistant_provider_config) as helpful_assistant_provider:
+        async with managed_ai_provider(
+            helpful_assistant_provider_config
+        ) as helpful_assistant_provider:
             print("Sending message...")
             question = "Can you give me a 2-sentence summary of the MCP protocol?"
             print(f"Question: {question}")
@@ -32,6 +42,7 @@ async def main():
             print("-" * 20)
     except (ValueError, RuntimeError, OSError) as e:
         print(f"\nAn error occurred: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

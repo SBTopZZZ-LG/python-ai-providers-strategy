@@ -47,6 +47,7 @@ python3 main.py
 │   ├── base.py
 │   ├── copilot.py
 │   ├── factory.py
+│   ├── openai.py
 │   └── tools.py
 ├── agents/
 │   ├── __init__.py
@@ -62,6 +63,7 @@ Module responsibilities:
 - `main.py`: Example entry point showing how to construct a config, select an agent, and run a provider session.
 - `ai_providers/base.py`: Generic provider contract, base options, all tool-related types (`BaseTool`, `ToolHandler`, `ToolInvocation`, `ToolResult`), `JSONParseError`, and high-level query methods (`query`, `query_json`).
 - `ai_providers/copilot.py`: Concrete provider implementation for the Copilot SDK.
+- `ai_providers/openai.py`: Concrete provider implementation for the OpenAI API (and any OpenAI-compatible endpoint).
 - `ai_providers/factory.py`: `AIProviderConfig`, provider creation/disposal, and the `managed_ai_provider` context manager.
 - `ai_providers/tools.py`: `define_tool` decorator — auto-generates JSON Schema from Pydantic models and wraps plain functions as `BaseTool` instances.
 - `ai_providers/__init__.py`: Public exports for package consumers.
@@ -92,19 +94,29 @@ Example (`CopilotProviderOptions`):
 - `system_prompt`
 - `timeout`
 
+Example (`OpenAIProviderOptions`):
+
+- `api_key`
+- `base_url`
+- `model`
+- `system_prompt`
+- `timeout`
+- `tools`
+
 ### Factory Responsibilities
 
 `create_ai_provider(config)`:
 
 - Accepts generic `AIProviderConfig`.
 - Selects concrete provider by `ProviderType`.
-- Starts provider dependencies (for Copilot: `CopilotClient.start()`).
+- Starts provider dependencies (for Copilot: `CopilotClient.start()`; OpenAI: no extra startup).
 - Returns a configured provider instance.
 
 `dispose_ai_provider(provider)`:
 
 - Disposes provider session and associated client resources.
-- Raises typed errors on unsupported providers or cleanup failures.
+- Provider-specific cleanup (e.g. stopping a Copilot client) runs automatically when applicable.
+- Raises `RuntimeError` on cleanup failures.
 
 `managed_ai_provider(config)`:
 
@@ -174,6 +186,24 @@ The caller constructs the `AIProviderConfig`, drawing `system_prompt` and `tools
 config = AIProviderConfig(
     provider_type=ProviderType.COPILOT,
     model="gpt-4.1",
+    timeout=120,
+    system_prompt=HelpfulAssistantAgent.system_prompt,
+    tools=HelpfulAssistantAgent.tools,
+)
+
+async with managed_ai_provider(config) as provider:
+    response = await provider.query("Hello")
+    print(response)
+```
+
+OpenAI (or any OpenAI-compatible endpoint):
+
+```python
+config = AIProviderConfig(
+    provider_type=ProviderType.OPENAI,
+    base_url="https://api.openai.com/v1",
+    api_key="sk-...",
+    model="gpt-4o",
     timeout=120,
     system_prompt=HelpfulAssistantAgent.system_prompt,
     tools=HelpfulAssistantAgent.tools,
@@ -353,11 +383,13 @@ If a tool is needed by multiple agents, add it to the `tools/` package following
 
 ### 1. Create a provider module
 
-Add a new file under `ai_providers/` (for example `openai_provider.py`) with:
+Add a new file under `ai_providers/` (for example `your_provider.py`) with:
 
 - An options dataclass inheriting `BaseAIProviderOptions`.
 - A provider class inheriting `BaseAIProvider[YourOptions]`.
 - Implementations for all lifecycle methods.
+
+Refer to `openai.py` for a minimal example, or `copilot.py` for one with external client lifecycle management.
 
 ### 2. Add enum value
 
@@ -368,13 +400,13 @@ Update `ProviderType` in `ai_providers/factory.py`.
 In `create_ai_provider(config)`:
 
 - Add a branch for the new provider.
-- Start SDK/client resources.
+- Start SDK/client resources if needed (OpenAI requires no extra startup).
 - Register rollback callbacks with `AsyncExitStack`.
 - Construct provider and return after `stack.pop_all()`.
 
 In `dispose_ai_provider(provider)`:
 
-- Add type-specific cleanup registration.
+- Add type-specific cleanup registration if needed.
 - Keep cleanup operations stack-managed and async-safe.
 
 ### 4. Export the new provider
@@ -387,9 +419,9 @@ Update `requirements.txt` if the provider requires an SDK.
 
 ## Error Handling Notes
 
-- Invalid or unsupported providers raise `ValueError`.
 - Startup/initialization/cleanup runtime failures raise `RuntimeError`.
-- Concrete providers should validate required options early.
+- Requesting an unavailable provider (e.g. Copilot when the SDK is not installed) raises `ValueError`.
+- Concrete providers validate required options during session initialization.
 
 ## Extension Guidelines
 
@@ -403,6 +435,7 @@ Update `requirements.txt` if the provider requires an SDK.
 | Provider | Package | Version Constraint | Notes |
 | --- | --- | --- | --- |
 | Copilot | github-copilot-sdk | >=0.1.25,<0.2.0 | Active provider in this template |
+| OpenAI | openai | >=2.41.1,<2.60.0 | Supports OpenAI API and any OpenAI-compatible endpoint |
 
 Planned providers can be added as new rows as they are implemented.
 
@@ -415,7 +448,7 @@ Planned providers can be added as new rows as they are implemented.
 - ~~[ ] Add agent factory / registry (similar to `ai_providers/factory.py`) under `agents/factory.py`~~
 - [ ] Unit/Integration tests for `ai_providers`, `agents`, and `tools` packages
 - [ ] Add Claude AI provider
-- [ ] Add OpenAI provider
+- [x] Add OpenAI provider
 
 ## License
 
