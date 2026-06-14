@@ -1,2 +1,2 @@
 github-copilot-sdk>=0.1.25,<0.2.0
-openai
+openai>=2.41.1,<2.60.0
